@@ -1,0 +1,59 @@
+# Конвейер сервиса.
+#
+# Служебный контейнер Postgres поднимается сразу под нужную базу: имя,
+# пользователь и пароль совпадают с тем, что интеграционные тесты берут
+# по умолчанию, поэтому отдельный скрипт создания баз здесь не нужен.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  tests:
+    name: Тесты
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: inventory_user
+          POSTGRES_PASSWORD: inventory_pass
+          POSTGRES_DB: inventory_db_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U inventory_user"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Форматирование
+        run: |
+          unformatted=$(gofmt -l .)
+          [ -z "$unformatted" ] || { echo "::error::не отформатировано: $unformatted"; exit 1; }
+
+      - name: Статический анализ
+        run: go vet ./...
+
+      - name: Модульные тесты
+        run: go test ./...
+
+      - name: Интеграционные тесты
+        # Отдельный признак сборки: без него go test ./... требовал бы базу
+        # у каждого, кто просто хочет прогнать модульные тесты.
+        run: go test -tags integration ./...
+
+      - name: Образ собирается
+        run: docker build -t inventory-service:ci .
