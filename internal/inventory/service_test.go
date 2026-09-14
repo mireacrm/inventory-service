@@ -237,6 +237,57 @@ func TestReplenishRejectsNonPositive(t *testing.T) {
 	}
 }
 
+func TestReplenishGivesEachNewConsumableItsOwnID(t *testing.T) {
+	repo := newRepo()
+	service, _, _ := setup(repo, fakeNorms{})
+	branch := uuid.New()
+
+	_, err := service.Replenish(context.Background(), []Movement{
+		{BranchID: branch, Name: "Шампунь", Unit: "мл", Delta: 1000},
+		{BranchID: branch, Name: "Краска", Unit: "г", Delta: 500},
+	})
+	if err != nil {
+		t.Fatalf("пополнение: %v", err)
+	}
+
+	applied := repo.applied[0]
+	if applied[0].ConsumableID == uuid.Nil || applied[1].ConsumableID == uuid.Nil {
+		t.Fatalf("новому материалу не выдан идентификатор: %v", applied)
+	}
+	// Одинаковый идентификатор свёл бы оба материала в одну позицию склада.
+	if applied[0].ConsumableID == applied[1].ConsumableID {
+		t.Fatalf("два материала получили один идентификатор: %s", applied[0].ConsumableID)
+	}
+}
+
+func TestReplenishKeepsKnownConsumableID(t *testing.T) {
+	repo := newRepo()
+	service, _, _ := setup(repo, fakeNorms{})
+	known := uuid.New()
+
+	_, err := service.Replenish(context.Background(), []Movement{
+		{BranchID: uuid.New(), ConsumableID: known, Name: "Шампунь", Unit: "мл", Delta: 200},
+	})
+	if err != nil {
+		t.Fatalf("пополнение: %v", err)
+	}
+
+	if got := repo.applied[0][0].ConsumableID; got != known {
+		t.Fatalf("идентификатор подменён: %s вместо %s", got, known)
+	}
+}
+
+func TestReplenishRejectsNamelessNewConsumable(t *testing.T) {
+	service, _, _ := setup(newRepo(), fakeNorms{})
+
+	_, err := service.Replenish(context.Background(), []Movement{{Delta: 10}})
+
+	var invalid *infra.InvalidArgumentError
+	if !errors.As(err, &invalid) {
+		t.Fatalf("ожидался InvalidArgument, получено %v", err)
+	}
+}
+
 func TestIsLow(t *testing.T) {
 	cases := []struct {
 		quantity, threshold float64

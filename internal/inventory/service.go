@@ -110,6 +110,16 @@ func (s *Service) Replenish(ctx context.Context, movements []Movement) ([]StockI
 		if movements[i].Delta <= 0 {
 			return nil, infra.InvalidArgument("количество пополнения должно быть положительным")
 		}
+		// Пустой идентификатор означает материал, которого на складе ещё нет:
+		// его заводит склад. Остаток лежит под ключом (филиал, материал), и
+		// без выданного здесь идентификатора все новые материалы филиала
+		// сложились бы в одну позицию с нулевым идентификатором.
+		if movements[i].ConsumableID == uuid.Nil {
+			if movements[i].Name == "" {
+				return nil, infra.InvalidArgument("новому материалу нужно название")
+			}
+			movements[i].ConsumableID = uuid.New()
+		}
 		movements[i].Reason = ReasonReplenish
 	}
 	items, _, err := s.repo.ApplyMovements(ctx, nil, "", movements)
